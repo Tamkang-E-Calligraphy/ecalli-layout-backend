@@ -1,5 +1,5 @@
 use azure_storage_blob::{BlobClient, BlobClientOptions};
-use azure_identity::DefaultAzureCredential;
+use azure_identity::AzureCliCredential;
 use secrecy::SecretString;
 use std::fmt;
 
@@ -58,7 +58,7 @@ impl BlobStorageSettings {
             &primary_endpoint,
             self.container.clone(),
             blob_name,
-            DefaultAzureCredential::new().map_err(|e| { eprintln!("{e}"); AppError::AzureSdkFailure})?,
+            AzureCliCredential::new(None).map_err(|e| { eprintln!("{e}"); AppError::AzureSdkFailure})?,
             Some(BlobClientOptions::default()),
         ).map_err(|e| { eprintln!("{e}"); AppError::AzureSdkFailure })?;
 
