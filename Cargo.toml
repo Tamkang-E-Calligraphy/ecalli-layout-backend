@@ -8,9 +8,11 @@ name = "app"
 path = "bin/app.rs"
 
 [dependencies]
-azure_core = "0.28"
-azure_storage_blob = "0.4"
-azure_identity = "0.27"
+azure_core = "0.29"
+azure_storage = "0.21"
+azure_storage_blobs = "0.21"
+azure_identity = "0.29"
+futures = "0.3"
 actix-cors = "0.7"
 actix-http = "3.11"
 actix-rt = "2.10"
@@ -23,8 +25,8 @@ serde_json = "1"
 secrecy = "0.10"
 thiserror = "2"
 tokio = { version = "1.47", features = ["full"] }
-typespec = "0.8"
+typespec = "0.9"
 
 # Image processing
 image = "0.25"
-zip = "5.1"
+zip = "6"
