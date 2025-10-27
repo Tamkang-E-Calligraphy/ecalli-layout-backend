@@ -3,8 +3,32 @@ use azure_storage_blobs::prelude::*;
 use image::{DynamicImage, Rgba, RgbaImage, imageops};
 use std::fmt;
 use std::io::{Cursor, Read};
+use std::str::FromStr;
 use std::path::Path;
 use zip::ZipArchive;
+use serde::Deserialize;
+
+/// Request format for static layout
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticLayoutRequest {
+    pub subject: String,
+    pub subject_font_type: String,
+    pub subject_list: Vec<StaticSubject>,
+    pub width: usize,
+    pub height: usize,
+
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticSubject {
+    pub pos_x: f64,
+    pub pos_y: f64,
+    pub width: usize,
+    pub height: usize,
+}
+
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -20,6 +44,8 @@ pub enum AppError {
     ImageOpsFailure(#[from] image::ImageError),
     #[error("I/O Error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Invalid subject font type: {0}")]
+    InvalidFontType(String),
 }
 
 pub enum CalliFont {
@@ -28,6 +54,22 @@ pub enum CalliFont {
     Regular,
     Seal,
     SemiCursive,
+}
+
+impl FromStr for CalliFont {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "楷書" => Ok(CalliFont::Regular),
+            "草書" => Ok(CalliFont::Cursive),
+            "行書" => Ok(CalliFont::SemiCursive),
+            "隸書" => Ok(CalliFont::Clerical),
+            "篆書" => Ok(CalliFont::Seal),
+            _ => Err(AppError::InvalidFontType(s.to_string())),
+        }
+        
+    }
 }
 
 impl fmt::Display for CalliFont {
@@ -117,12 +159,12 @@ pub fn compose_poem_animation_frames(
 }
 
 pub struct WordFrame {
-    pub(crate) name: char,
-    pub(crate) img: DynamicImage,
-    pub(crate) height: u32,
-    pub(crate) width: u32,
-    pub(crate) pos_x: u64,
-    pub(crate) pos_y: u64,
+    pub name: char,
+    pub img: DynamicImage,
+    pub height: u32,
+    pub width: u32,
+    pub pos_x: u64,
+    pub pos_y: u64,
 }
 
 impl WordFrame {
