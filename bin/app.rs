@@ -1,6 +1,43 @@
+use actix_cors::Cors;
+use actix_http::header::HeaderName;
+use actix_web::body::MessageBody;
+use actix_web::dev::{Server, ServiceFactory, ServiceRequest, ServiceResponse};
+use actix_web::http::header;
+use actix_web::middleware::Logger;
+use actix_web::{App, Error, HttpServer, web};
 use ecalli_layout_backend::{AppError, BlobStorageConfig, CalliFont};
 use std::io::Cursor;
 use zip::ZipArchive;
+
+fn create_server() -> App<
+    impl ServiceFactory<
+        ServiceRequest,
+        Config = (),
+        Response = ServiceResponse<impl MessageBody>,
+        Error = Error,
+        InitError = (),
+    >,
+> {
+    let cors = Cors::default()
+        .allow_any_origin()
+        // .allowed_origin("localhost:3000")
+        .allowed_methods(vec!["GET", "POST", "DELETE"])
+        .allowed_headers(vec![
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            HeaderName::from_static("x-user-agent"),
+        ])
+        .supports_credentials();
+
+    /*
+    App::new()
+        .service(
+            web::scope("/api")
+    */
+
+    todo!()
+}
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
