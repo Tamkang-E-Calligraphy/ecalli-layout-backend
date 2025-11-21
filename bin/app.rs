@@ -1,15 +1,27 @@
 use actix_cors::Cors;
 use actix_http::header::HeaderName;
-use actix_web::body::MessageBody;
-use actix_web::dev::{Server, ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::http::header;
-use actix_web::middleware::Logger;
-use actix_web::{App, Error, HttpServer, web};
-use ecalli_layout_backend::{AppError, BlobStorageConfig, CalliFont};
-use std::io::Cursor;
-use zip::ZipArchive;
+use actix_web::{
+    App, Error, HttpResponse, HttpServer, Responder,
+    body::MessageBody,
+    dev::{ServiceFactory, ServiceRequest, ServiceResponse},
+    get,
+    http::header,
+    web,
+};
+use ecalli_layout_backend::api::{self, StatusResponse};
+use std::io;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
-fn create_server() -> App<
+#[get("/health")]
+async fn health_check() -> impl Responder {
+    HttpResponse::Ok().json(StatusResponse {
+        code: "000".to_string(),
+        message: "Server is running.".to_string(),
+    })
+}
+
+fn create_server_app() -> App<
     impl ServiceFactory<
         ServiceRequest,
         Config = (),
@@ -30,42 +42,22 @@ fn create_server() -> App<
         ])
         .supports_credentials();
 
-    /*
-    App::new()
-        .service(
-            web::scope("/api")
-    */
-
-    todo!()
+    App::new().wrap(cors).service(
+        web::scope("/api/v1")
+            .service(health_check)
+            .service(api::handle_poem_animation_generation),
+    )
 }
 
-#[tokio::main]
-async fn main() -> Result<(), AppError> {
-    let storage_config = BlobStorageConfig::from_local_env()?;
-    let blob_request = storage_config.get_frame_client(CalliFont::SemiCursive, '觀');
-    /* Pure getter method.
-    let mut blob_stream = blob_request.get().into_stream();
+#[actix_web::main]
+async fn main() -> io::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .init();
 
-    let mut result: Vec<u8> = Vec::new();
-
-    // The stream is composed of individual calls to the get blob endpoint
-    while let Some(value) = blob_stream.next().await {
-        let mut body = value.inspect_err(|e| eprintln!("{e}")).unwrap().data;
-        // For each response, we stream the body instead of collecting it all
-        // into one large allocation.
-        while let Some(value) = body.next().await {
-            let value = value.inspect_err(|e| eprintln!("{e}")).unwrap();
-            result.extend(&value);
-        }
-    }
-    let reader = Cursor::new(result);
-    */
-    println!("{}", blob_request.blob_name());
-    let reader = Cursor::new(blob_request.get_content().await.unwrap());
-
-    let zipfile = ZipArchive::new(reader).unwrap();
-
-    zipfile.file_names().for_each(|n| println!("{n}"));
-
-    Ok(())
+    info!("Starting Actix web server with Tracing...");
+    HttpServer::new(create_server_app)
+        .bind(("127.0.0.1", 18081))?
+        .run()
+        .await
 }
