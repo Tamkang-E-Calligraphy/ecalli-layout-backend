@@ -9,7 +9,7 @@ use std::str::FromStr;
 use azure_storage::prelude::*;
 use azure_storage_blobs::prelude::*;
 use image::{
-    ExtendedColorType, GrayAlphaImage, ImageEncoder, LumaA,
+    ExtendedColorType, ImageEncoder, Rgba, RgbaImage,
     codecs::png::PngEncoder,
     imageops::{self, FilterType},
 };
@@ -123,7 +123,7 @@ impl BlobStorageConfig {
             }
 
             // Download request to BLOB storage.
-            let blob_client = self.get_frame_client(&font_type, word);
+            let blob_client = self.get_frame_client(font_type, word);
             // Fetch the metadata of zip file to check if the selected word exists.
             if blob_client.get_metadata().await.is_ok() {
                 let word_frames = WordFrame::load_from_client(blob_client).await?;
@@ -131,7 +131,7 @@ impl BlobStorageConfig {
             } else {
                 result.push(vec![WordFrame {
                     name: word,
-                    img: GrayAlphaImage::new(0, 0),
+                    img: RgbaImage::new(0, 0),
                     width: 0,
                     height: 0,
                     pos_x: 0,
@@ -239,10 +239,10 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 
 pub async fn compose_poem_animation_frames(
     req: AnimationRequest,
-) -> Result<Vec<GrayAlphaImage>, AppError> {
+) -> Result<Vec<RgbaImage>, AppError> {
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
-    let mut canvas = GrayAlphaImage::from_pixel(canvas_width, canvas_height, LumaA([255, 255]));
+    let mut canvas = RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
     let mut recorded_frames = Vec::new();
     let font_type = CalliFont::from_str(&req.font_type)?;
     let blob_config = BlobStorageConfig::from_local_env()?;
@@ -275,7 +275,7 @@ pub async fn compose_poem_animation_frames(
 }
 
 /// Example canvas frame filename: frame_001.png
-pub fn zip_frames_to_memory(frames: Vec<GrayAlphaImage>) -> Result<Vec<u8>, AppError> {
+pub fn zip_frames_to_memory(frames: Vec<RgbaImage>) -> Result<Vec<u8>, AppError> {
     // Create a buffer to hold the final ZIP file in memory
     let mut zip_buffer = Vec::new();
 
@@ -291,7 +291,7 @@ pub fn zip_frames_to_memory(frames: Vec<GrayAlphaImage>) -> Result<Vec<u8>, AppE
             .unix_permissions(0o755);
 
         for (index, frame) in frames.iter().enumerate() {
-            let filename = format!("frame_{:03}.png", index); // e.g., frame_001.png
+            let filename = format!("frame_{index:03}.png"); // e.g., frame_001.png
 
             // Start a file entry in the ZIP
             zip_writer.start_file(&filename, options)?;
@@ -305,7 +305,7 @@ pub fn zip_frames_to_memory(frames: Vec<GrayAlphaImage>) -> Result<Vec<u8>, AppE
                 frame.as_raw(), // The raw pixel bytes
                 width,
                 height,
-                ExtendedColorType::La8, // IMPORTANT: Tell PNG this is 8-bit Luma+Alpha
+                ExtendedColorType::Rgba8, // IMPORTANT: Tell PNG this is 8-bit RgbA
             )?;
         }
 
@@ -318,7 +318,7 @@ pub fn zip_frames_to_memory(frames: Vec<GrayAlphaImage>) -> Result<Vec<u8>, AppE
 
 pub struct WordFrame {
     pub name: char,
-    pub img: GrayAlphaImage,
+    pub img: RgbaImage,
     pub width: u32,
     pub height: u32,
     pub pos_x: u64,
@@ -347,7 +347,7 @@ impl WordFrame {
 
             Ok(Self {
                 name: char_name,
-                img: rgba_img.into_luma_alpha8(),
+                img: rgba_img.into(),
                 width,
                 height,
                 pos_x: 0,
@@ -400,7 +400,7 @@ impl WordFrame {
 
                     Ok(Self {
                         name: char_name,
-                        img: rgba_img.into_luma_alpha8(),
+                        img: rgba_img.into(),
                         height,
                         width,
                         pos_x: 0,
