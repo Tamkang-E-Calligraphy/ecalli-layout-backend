@@ -1,15 +1,19 @@
-use azure_storage::prelude::*;
 pub mod json;
 use json::*;
 
-use azure_storage_blobs::prelude::*;
-use image::{DynamicImage, Rgba, LumaA, RgbaImage, GrayAlphaImage, imageops::{self, FilterType}};
 use std::fmt;
 use std::io::{Cursor, Read};
-use std::str::FromStr;
 use std::path::Path;
-use zip::ZipArchive;
-use gcd::Gcd;
+use std::str::FromStr;
+
+use azure_storage::prelude::*;
+use azure_storage_blobs::prelude::*;
+use image::{
+    ExtendedColorType, GrayAlphaImage, ImageEncoder, LumaA,
+    codecs::png::PngEncoder,
+    imageops::{self, FilterType},
+};
+use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -49,7 +53,6 @@ impl FromStr for CalliFont {
             "篆書" => Ok(CalliFont::Seal),
             _ => Err(AppError::InvalidFontType(s.to_string())),
         }
-        
     }
 }
 
@@ -107,29 +110,41 @@ impl BlobStorageConfig {
             .blob_client(blob_name)
     }
 
-    /*
-    async fn get_poem_frames_by_font_type(&self, font_type: CalliFont, poem: Vec<char>) -> Result<Vec<Vec<WordFrame>>, AppError> {
-        let mut result = Vec::with_capacity(poem.len());
-        for word in poem {
-            if matches!(word, '，' | '。' | '？' | '！' | ',' | '?' | '!') { continue; }
+    async fn get_poem_frames_by_font_type(
+        &self,
+        font_type: &CalliFont,
+        content: &str,
+    ) -> Result<Vec<Vec<WordFrame>>, AppError> {
+        let mut result = Vec::with_capacity(content.len());
+        for word in content.chars() {
+            // Ensure the frontend has already excluded none Chinese letters.
+            if matches!(word, '，' | '。' | '？' | '！' | ',' | '?' | '!') {
+                unreachable!();
+            }
 
-
-            match self.get_frame_client(font_type, word).get_content() {
-                Ok(blob) => {
-
-                },
-                Err(e) => {
-                    eprintln!("{e}");
-
-                }
+            // Download request to BLOB storage.
+            let blob_client = self.get_frame_client(&font_type, word);
+            // Fetch the metadata of zip file to check if the selected word exists.
+            if blob_client.get_metadata().await.is_ok() {
+                let word_frames = WordFrame::load_from_client(blob_client).await?;
+                result.push(word_frames);
+            } else {
+                result.push(vec![WordFrame {
+                    name: word,
+                    img: GrayAlphaImage::new(0, 0),
+                    width: 0,
+                    height: 0,
+                    pos_x: 0,
+                    pos_y: 0,
+                }])
             }
         }
 
+        Ok(result)
     }
-    */
 }
 
-// Greedily distributes words into K columns sequentially (in input order) 
+// Greedily distributes words into K columns sequentially (in input order)
 // to minimize the max height (H_max).
 //
 // Returns: (H_max, layout_map)
@@ -182,10 +197,7 @@ fn get_word_coordinates(
         let y_f64 = column_offsets[column_index];
 
         // Convert to u32 pixel coordinates
-        scaled_coords.push((
-             x_f64 as u32, 
-             y_f64 as u32 
-        ));
+        scaled_coords.push((x_f64 as u32, y_f64 as u32));
 
         // Update the column offset
         let scaled_height = h_f64 * s;
@@ -195,6 +207,7 @@ fn get_word_coordinates(
     scaled_coords
 }
 
+/*
 pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canvas_width: u32, canvas_height: u32, fixed_space: bool) -> Result<(), AppError> {
     let word_orig_width = selected_words[0].width;
     let word_count = selected_words.len();
@@ -213,7 +226,6 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
         let mut max_scaling_factor_s = 0.0;
         let mut optimal_columns_k = 1;
         let mut optimal_h_max = f64::INFINITY;
-        let mut optimal_layout_map = Vec::new();
 
         // Iterate through all possible column counts (K) from 1 up to N
         (1..=word_count).for_each(|k| {
@@ -223,29 +235,85 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 
     todo!();
 }
+*/
 
 pub async fn compose_poem_animation_frames(
-    mut selected_frames: Vec<Vec<WordFrame>>,
-    canvas_width: u32,
-    canvas_height: u32,
-    font_type: CalliFont,
-    fixed_space: bool,
-) -> Result<(), AppError> {
-    let mut blank_canvas =
-        GrayAlphaImage::from_pixel(canvas_width, canvas_height, LumaA([0, 255]));
-    let config = BlobStorageConfig::from_local_env()?;
+    req: AnimationRequest,
+) -> Result<Vec<GrayAlphaImage>, AppError> {
+    let canvas_width = req.width as u32;
+    let canvas_height = req.height as u32;
+    let mut canvas = GrayAlphaImage::from_pixel(canvas_width, canvas_height, LumaA([255, 255]));
+    let mut recorded_frames = Vec::new();
+    let font_type = CalliFont::from_str(&req.font_type)?;
+    let blob_config = BlobStorageConfig::from_local_env()?;
 
-    for word_frames in selected_frames {
-        // Download the frame.
-        let client = config.get_frame_client(&font_type, word_frames[0].name);
-        //client.get_content()
+    let mut content_strokes = blob_config
+        .get_poem_frames_by_font_type(&font_type, &req.content)
+        .await?;
 
-
+    if req.word_list.len() == content_strokes.len() {
+        for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
+            for frame in strokes {
+                frame.resize_img_by_size(layer.width, layer.height);
+                imageops::overlay(
+                    &mut canvas,
+                    &frame.img,
+                    layer.pos_x as i64,
+                    layer.pos_y as i64,
+                );
+                // Collect the canvas frame.
+                recorded_frames.push(canvas.clone());
+            }
+        }
+    } else {
+        return Err(AppError::InvalidFileName(
+            "WordList contains illegal characters".to_string(),
+        ));
     }
 
-    
-    
-    todo!();
+    Ok(recorded_frames)
+}
+
+/// Example canvas frame filename: frame_001.png
+pub fn zip_frames_to_memory(frames: Vec<GrayAlphaImage>) -> Result<Vec<u8>, AppError> {
+    // Create a buffer to hold the final ZIP file in memory
+    let mut zip_buffer = Vec::new();
+
+    // Use a scope to ensure the borrow of zip_buffer ends when we need to return it
+    {
+        let mut zip_writer = ZipWriter::new(Cursor::new(&mut zip_buffer));
+
+        // OPTIMIZATION: Use "Stored" (No Compression) for the ZIP container.
+        // Why? PNGs are already compressed. Compressing them again (Deflate)
+        // wastes CPU for almost zero size gain.
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Stored)
+            .unix_permissions(0o755);
+
+        for (index, frame) in frames.iter().enumerate() {
+            let filename = format!("frame_{:03}.png", index); // e.g., frame_001.png
+
+            // Start a file entry in the ZIP
+            zip_writer.start_file(&filename, options)?;
+
+            // Encode the pixels to PNG and write directly into the Zip stream
+            // This is the memory-saving trick. We don't create a Vec<u8> for the PNG first.
+            let (width, height) = frame.dimensions();
+            let encoder = PngEncoder::new(&mut zip_writer);
+
+            encoder.write_image(
+                frame.as_raw(), // The raw pixel bytes
+                width,
+                height,
+                ExtendedColorType::La8, // IMPORTANT: Tell PNG this is 8-bit Luma+Alpha
+            )?;
+        }
+
+        // Finish the ZIP structure
+        zip_writer.finish()?;
+    }
+
+    Ok(zip_buffer)
 }
 
 pub struct WordFrame {
@@ -279,7 +347,7 @@ impl WordFrame {
 
             Ok(Self {
                 name: char_name,
-                img: rgba_img.into(),
+                img: rgba_img.into_luma_alpha8(),
                 width,
                 height,
                 pos_x: 0,
@@ -332,7 +400,7 @@ impl WordFrame {
 
                     Ok(Self {
                         name: char_name,
-                        img: rgba_img.into(),
+                        img: rgba_img.into_luma_alpha8(),
                         height,
                         width,
                         pos_x: 0,
@@ -345,7 +413,7 @@ impl WordFrame {
             .collect()
     }
 
-    pub fn resize_img(&mut self, scale: f64) {
+    pub fn resize_img_by_scale(&mut self, scale: f64) {
         let new_w = (self.width as f64 * scale) as u32;
         let new_h = (self.height as f64 * scale) as u32;
         let new_img = imageops::resize(&self.img, new_w, new_h, FilterType::Gaussian);
@@ -353,5 +421,20 @@ impl WordFrame {
         self.width = new_w;
         self.height = new_h;
         self.img = new_img;
+    }
+
+    fn resize_img_by_size(&mut self, resize_width: isize, resize_height: isize) {
+        let new_w = resize_width as u32;
+        let new_h = resize_height as u32;
+        let new_img = imageops::resize(&self.img, new_w, new_h, FilterType::Gaussian);
+
+        self.width = new_w;
+        self.height = new_h;
+        self.img = new_img;
+    }
+
+    // Return `true` if the word frame is empty.
+    fn is_empty(&self) -> bool {
+        self.width == self.height && self.width == 0
     }
 }
