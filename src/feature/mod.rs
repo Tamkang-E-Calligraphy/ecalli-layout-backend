@@ -242,7 +242,6 @@ pub async fn compose_poem_animation_frames(
 ) -> Result<Vec<RgbaImage>, AppError> {
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
-    let mut canvas = RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
     let mut recorded_frames = Vec::new();
     let font_type = CalliFont::from_str(&req.font_type)?;
     let blob_config = BlobStorageConfig::from_local_env()?;
@@ -251,18 +250,21 @@ pub async fn compose_poem_animation_frames(
         .get_poem_frames_by_font_type(&font_type, &req.content)
         .await?;
 
+    let mut main_canvas =
+        RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
+
     if req.word_list.len() == content_strokes.len() {
         for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
             for frame in strokes {
                 frame.resize_img_by_size(layer.width, layer.height);
                 imageops::overlay(
-                    &mut canvas,
+                    &mut main_canvas,
                     &frame.img,
                     layer.pos_x as i64,
                     layer.pos_y as i64,
                 );
                 // Collect the canvas frame.
-                recorded_frames.push(canvas.clone());
+                recorded_frames.push(main_canvas.clone());
             }
         }
     } else {
@@ -378,7 +380,7 @@ impl WordFrame {
             .map_err(|e| AppError::AzureSdkFailure(e.to_string()))?;
         let mut zipfile = ZipArchive::new(Cursor::new(blob))?;
 
-        (0..zipfile.len())
+        let frames_with_ids_res = (0..zipfile.len())
             .map(|idx| {
                 let mut file = zipfile.by_index(idx)?;
                 let fname = file.name();
@@ -386,9 +388,9 @@ impl WordFrame {
                 if fpath.extension().is_some_and(|ext| {
                     let ext_str = ext.to_ascii_lowercase();
                     ext_str == "jpg" || ext_str == "jpeg" || ext_str == "png"
-                }) && fpath
+                }) && let Some(frame_id) = fpath
                     .file_stem()
-                    .is_some_and(|oss| oss.to_str().is_some_and(|s| s.parse::<u32>().is_ok()))
+                    .and_then(|oss| oss.to_str().and_then(|s| s.parse::<u32>().ok()))
                 {
                     let mut imgbuf = Vec::new();
                     file.read_to_end(&mut imgbuf)?;
@@ -398,19 +400,30 @@ impl WordFrame {
                     let height = rgba_img.height();
                     let width = rgba_img.width();
 
-                    Ok(Self {
-                        name: char_name,
-                        img: rgba_img.into(),
-                        height,
-                        width,
-                        pos_x: 0,
-                        pos_y: 0,
-                    })
+                    Ok((
+                        frame_id,
+                        Self {
+                            name: char_name,
+                            img: rgba_img.into(),
+                            height,
+                            width,
+                            pos_x: 0,
+                            pos_y: 0,
+                        },
+                    ))
                 } else {
                     Err(AppError::InvalidFileName(fname.to_string()))
                 }
             })
-            .collect()
+            .collect::<Result<Vec<(u32, Self)>, AppError>>();
+        // Sort the frames by file name
+        let mut frames_with_ids = frames_with_ids_res?;
+        frames_with_ids.sort_by_key(|(id, _)| *id);
+
+        Ok(frames_with_ids
+            .into_iter()
+            .map(|(_, frame)| frame)
+            .collect())
     }
 
     pub fn resize_img_by_scale(&mut self, scale: f64) {
