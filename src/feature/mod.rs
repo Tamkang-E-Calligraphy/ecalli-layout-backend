@@ -13,6 +13,7 @@ use image::{
     codecs::png::PngEncoder,
     imageops::{self, FilterType},
 };
+use webp_animation::{Encoder, WebPData};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 #[derive(thiserror::Error, Debug)]
@@ -23,10 +24,14 @@ pub enum AppError {
     AzureSdkFailure(String),
     #[error(transparent)]
     ZipFailure(#[from] zip::result::ZipError),
+    #[error(transparent)]
+    WebpFailure(#[from] webp_animation::Error),
     #[error("Invalid file name extracted from zip archive: {0}")]
     InvalidFileName(String),
     #[error(transparent)]
     ImageOpsFailure(#[from] image::ImageError),
+    #[error("Cannot encode a list of empty frames.")]
+    EmptyFrame,
     #[error("I/O Error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("Invalid subject font type: {0}")]
@@ -276,6 +281,47 @@ pub async fn compose_poem_animation_frames(
     Ok(recorded_frames)
 }
 
+/// Converts a Vec of Rgba<u8> frames into an animated WebP byte array.
+/// The `frame_delay_ms` is exchangable to FPS based on the formula:
+/// 1000 / FPS = frame_delay_ms (e.g. 33.3ms delay is roughly 30 FPS)
+pub fn encode_frames_to_webp(
+    frames: Vec<RgbaImage>,
+    frame_delay_ms: i32, // Time each frame is displayed
+) -> Result<WebPData, AppError> {
+    // Check if there are frames to encode
+    let first_frame = match frames.first() {
+        Some(f) => f,
+        None => return Err(AppError::EmptyFrame),
+    };
+
+    // Grab the canvas width and height from the first frame.
+    let (width, height) = first_frame.dimensions();
+
+    // Initialize the WebP Encoder with default config.
+    // Default ColorMode = RgbA
+    let mut encoder = Encoder::new((width, height))?;
+
+    let mut current_timestamp = 0; // The timestamp tracker for frame duration
+
+    for frame in frames {
+        // Add each frame to the encoder
+        // The timestamp tells the encoder WHEN the frame is presented.
+        encoder.add_frame(
+            frame.as_raw(), // Raw pixel data buffer, default to RgbA
+            current_timestamp,
+        )?;
+
+        // Advance the timestamp by the frame delay for the next frame
+        current_timestamp += frame_delay_ms;
+    }
+
+    // Finalize the animation
+    // The last timestamp tells the encoder the total duration.
+    let webp_bytes = encoder.finalize(current_timestamp)?;
+
+    Ok(webp_bytes)
+}
+
 /// Example canvas frame filename: frame_001.png
 pub fn zip_frames_to_memory(frames: Vec<RgbaImage>) -> Result<Vec<u8>, AppError> {
     // Create a buffer to hold the final ZIP file in memory
@@ -362,9 +408,9 @@ impl WordFrame {
         }
     }
 
-    // Loads all numbered JPG/PNG frames from a specific word's zip archive provided as a byte blob.
-    // Assumes filenames inside the zip are in the format "FrameNumber.jpg" (e.g., "1.jpg", "10.jpg").
-    // Returns a sorted vector of `DynamicImage` frames for that word. along with the dimensions
+    /// Loads all numbered JPG/PNG frames from a specific word's zip archive provided as a byte blob.
+    /// Assumes filenames inside the zip are in the format "FrameNumber.jpg" (e.g., "1.jpg", "10.jpg").
+    /// Returns a sorted vector of `Self` containing `RgbaImage` buffers and other metadata.
     pub async fn load_from_client(client: BlobClient) -> Result<Vec<Self>, AppError> {
         let name_parts: Vec<&str> = Path::new(client.blob_name())
             .file_name()
