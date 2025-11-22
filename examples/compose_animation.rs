@@ -1,7 +1,6 @@
 use ecalli_layout_backend::feature::json::{AnimateSubject, AnimationRequest};
 use ecalli_layout_backend::feature::*;
-use std::fs::File;
-use std::io::Write;
+use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
@@ -10,7 +9,7 @@ async fn main() -> Result<(), AppError> {
         subject_font_type: "楷書".into(),
         subject_list: Vec::new(),
         content: "安".into(),
-        font_type: "草書".into(),
+        font_type: "行書".into(),
         word_list: vec![AnimateSubject {
             pos_x: 0.,
             pos_y: 0.,
@@ -21,11 +20,12 @@ async fn main() -> Result<(), AppError> {
         height: 800,
     };
     let images = compose_poem_animation_frames(test_req).await?;
+    // Compress all frame PNG images into a zip archive.
     let zip_buffer = zip_frames_to_memory(images)?;
-
-    let output_filepath = "test_output.zip";
-    let mut output_file = File::create(output_filepath)?;
-    output_file.write_all(&zip_buffer)?;
+    fs::write("test_output.zip", zip_buffer)?;
+    // Compose all frame rgba pixels into a webp image.
+    let webpdata = encode_frames_to_webp(images, 33)?;
+    fs::write("test_output.webp", webpdata)?;
 
     Ok(())
 }

@@ -20,25 +20,26 @@ pub async fn handle_poem_animation_generation(body: web::Json<AnimationRequest>)
     }
 
     match compose_poem_animation_frames(body.into_inner()).await {
-        Ok(images) => match zip_frames_to_memory(images) {
-            Ok(zip_buffer) => {
-                // Success: Provide a filename for ZIP archive.
+        // Set to 30 FPS with 33ms delay when encoding webp image.
+        Ok(images) => match encode_frames_to_webp(images, 33) {
+            Ok(webp_data) => {
+                // Success: Provide a filename for WebP Image.
                 HttpResponse::Ok()
-                    .content_type("application/zip")
+                    .content_type("image/webp")
                     .append_header((
                         header::CONTENT_DISPOSITION,
-                        "attachment; filename=\"result.zip\"",
+                        "attachment; filename=\"result.webp\"",
                     ))
-                    .body(zip_buffer)
+                    .body(webp_data.to_vec())
             }
             Err(e) => HttpResponse::BadRequest().json(StatusResponse {
                 code: "200".to_string(),
-                message: format!("Internal error when compressing images into ZIP archive: {e}"),
+                message: format!("Internal error when encoding frames to WebP format: {e}"),
             }),
         },
         Err(e) => HttpResponse::BadRequest().json(StatusResponse {
             code: "200".to_string(),
-            message: format!("Internal error when generating poem animation: {e}"),
+            message: format!("Internal error when generating stroke animation: {e}"),
         }),
     }
 }
