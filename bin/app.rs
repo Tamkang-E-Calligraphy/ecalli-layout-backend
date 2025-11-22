@@ -10,8 +10,7 @@ use actix_web::{
 };
 use ecalli_layout_backend::api::{self, StatusResponse};
 use std::io;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
+use tracing_actix_web::TracingLogger;
 
 #[get("/health")]
 async fn health_check() -> impl Responder {
@@ -42,20 +41,18 @@ fn create_server_app() -> App<
         ])
         .supports_credentials();
 
-    App::new().wrap(cors).service(
-        web::scope("/api/v1")
-            .service(health_check)
-            .service(api::handle_poem_animation_generation),
-    )
+    App::new()
+        .wrap(cors)
+        .wrap(TracingLogger::default())
+        .service(
+            web::scope("/api/v1")
+                .service(health_check)
+                .service(api::handle_poem_animation_generation),
+        )
 }
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
-        .init();
-
-    info!("Starting Actix web server with Tracing...");
     HttpServer::new(create_server_app)
         .bind(("127.0.0.1", 18081))?
         .run()

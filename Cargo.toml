@@ -8,26 +8,24 @@ name = "app"
 path = "bin/app.rs"
 
 [dependencies]
-azure_core = "0.30"
+#azure_core = "0.30"
 azure_storage = "0.21"
 azure_storage_blobs = "0.21"
-azure_identity = "0.30"
+#azure_identity = "0.30"
 futures = "0.3"
 actix-cors = "0.7"
 actix-http = "3.11"
 actix-rt = "2.11"
 actix-web = "4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-actix-web = "0.7"
 dotenv = "0.15"
 serde = { version = "1", features = ["derive"] }
-serde-aux = "4.7"
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1.47", features = ["full"] }
-typespec = "0.10"
+tokio = { version = "1.48", features = ["full"] }
 
 # Image processing
 image = "0.25"
+webp-animation = "0.9"
 zip = "6"
