@@ -245,6 +245,59 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 }
 */
 
+pub async fn generate_poem_animation_webp(
+    req: AnimationRequest,
+    frame_delay_ms: i32,
+) -> Result<WebPData, AppError> {
+    let canvas_width = req.width as u32;
+    let canvas_height = req.height as u32;
+    let font_type = CalliFont::from_str(&req.font_type)?;
+    let blob_config = BlobStorageConfig::from_local_env()?;
+
+    let mut content_strokes = blob_config
+        .get_poem_frames_by_font_type(&font_type, &req.content)
+        .await?;
+
+    let mut main_canvas =
+        RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
+
+    // Initialize the WebP Encoder with default config.
+    let mut encoder = Encoder::new((canvas_width, canvas_height))?;
+    let mut current_timestamp = 0;
+
+    if req.word_list.len() == content_strokes.len() {
+        for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
+            // Process word with valid frames only.
+            if strokes.len() > 1 {
+                for frame in strokes {
+                    frame.resize_img_by_size(layer.width, layer.height);
+                    // Apply strokes onto the main canvas
+                    imageops::overlay(
+                        &mut main_canvas,
+                        &frame.img,
+                        layer.pos_x as i64,
+                        layer.pos_y as i64,
+                    );
+                    // Add the word frame to encoder.
+                    encoder.add_frame(main_canvas.as_raw(), current_timestamp)?;
+                    // Advance the timestamp by the frame delay for the next frame
+                    current_timestamp += frame_delay_ms;
+                }
+            }
+        }
+    } else {
+        return Err(AppError::InvalidFileName(
+            "WordList contains illegal characters".to_string(),
+        ));
+    }
+
+    // Finalize the animation
+    // The last timestamp tells the encoder the total duration.
+    let webp_bytes = encoder.finalize(current_timestamp)?;
+
+    Ok(webp_bytes)
+}
+
 pub async fn compose_poem_animation_frames(
     req: AnimationRequest,
 ) -> Result<Vec<RgbaImage>, AppError> {

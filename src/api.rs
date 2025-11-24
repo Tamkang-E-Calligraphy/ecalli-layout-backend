@@ -19,27 +19,21 @@ pub async fn handle_poem_animation_generation(body: web::Json<AnimationRequest>)
         });
     }
 
-    match compose_poem_animation_frames(body.into_inner()).await {
-        // Set to 30 FPS with 33ms delay when encoding webp image.
-        Ok(images) => match encode_frames_to_webp(images, 33) {
-            Ok(webp_data) => {
-                // Success: Provide a filename for WebP Image.
-                HttpResponse::Ok()
-                    .content_type("image/webp")
-                    .append_header((
-                        header::CONTENT_DISPOSITION,
-                        "attachment; filename=\"result.webp\"",
-                    ))
-                    .body(webp_data.to_vec())
-            }
-            Err(e) => HttpResponse::BadRequest().json(StatusResponse {
-                code: "200".to_string(),
-                message: format!("Internal error when encoding frames to WebP format: {e}"),
-            }),
-        },
+    // Set to 30 FPS with 33ms delay when encoding webp image.
+    match generate_poem_animation_webp(body.into_inner(), 33).await {
+        Ok(webp_data) => {
+            // Success: Provide a filename for WebP Image.
+            HttpResponse::Ok()
+                .content_type("image/webp")
+                .append_header((
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"result.webp\"",
+                ))
+                .body(webp_data.to_vec())
+        }
         Err(e) => HttpResponse::BadRequest().json(StatusResponse {
             code: "200".to_string(),
-            message: format!("Internal error when generating stroke animation: {e}"),
+            message: format!("Internal error: {e}"),
         }),
     }
 }
