@@ -22,6 +22,8 @@ pub enum AppError {
     DotEnvFailure(#[from] dotenv::Error),
     #[error("Azure SDK error: {0}")]
     AzureSdkFailure(String),
+    #[error("Azure stoage error: {0}")]
+    AzureStorageFailure(#[from] azure_storage::Error),
     #[error(transparent)]
     ZipFailure(#[from] zip::result::ZipError),
     #[error(transparent)]
@@ -129,11 +131,12 @@ impl BlobStorageConfig {
 
             // Download request to BLOB storage.
             let blob_client = self.get_frame_client(font_type, word);
-            // Fetch the metadata of zip file to check if the selected word exists.
-            if blob_client.get_metadata().await.is_ok() {
+            // Check if the selected word exists.
+            if blob_client.exists().await? {
                 let word_frames = WordFrame::load_from_client(blob_client).await?;
                 result.push(word_frames);
             } else {
+                // Todo: Replace with an actual static frame of the whole word.
                 result.push(vec![WordFrame {
                     name: word,
                     img: RgbaImage::new(0, 0),
@@ -141,7 +144,7 @@ impl BlobStorageConfig {
                     height: 0,
                     pos_x: 0,
                     pos_y: 0,
-                }])
+                }]);
             }
         }
 
@@ -260,16 +263,19 @@ pub async fn compose_poem_animation_frames(
 
     if req.word_list.len() == content_strokes.len() {
         for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
-            for frame in strokes {
-                frame.resize_img_by_size(layer.width, layer.height);
-                imageops::overlay(
-                    &mut main_canvas,
-                    &frame.img,
-                    layer.pos_x as i64,
-                    layer.pos_y as i64,
-                );
-                // Collect the canvas frame.
-                recorded_frames.push(main_canvas.clone());
+            // Process word with valid frames only.
+            if strokes.len() > 1 {
+                for frame in strokes {
+                    frame.resize_img_by_size(layer.width, layer.height);
+                    imageops::overlay(
+                        &mut main_canvas,
+                        &frame.img,
+                        layer.pos_x as i64,
+                        layer.pos_y as i64,
+                    );
+                    // Collect the canvas frame.
+                    recorded_frames.push(main_canvas.clone());
+                }
             }
         }
     } else {
@@ -482,7 +488,7 @@ impl WordFrame {
         self.img = new_img;
     }
 
-    fn resize_img_by_size(&mut self, resize_width: isize, resize_height: isize) {
+    pub fn resize_img_by_size(&mut self, resize_width: isize, resize_height: isize) {
         let new_w = resize_width as u32;
         let new_h = resize_height as u32;
         let new_img = imageops::resize(&self.img, new_w, new_h, FilterType::Gaussian);
@@ -493,7 +499,7 @@ impl WordFrame {
     }
 
     // Return `true` if the word frame is empty.
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.width == self.height && self.width == 0
     }
 }
