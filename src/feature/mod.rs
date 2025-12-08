@@ -94,7 +94,7 @@ impl BlobStorageConfig {
         self.container = name.to_string();
     }
 
-    pub fn get_static_font_client(&self, font_type: CalliFont, font_name: char) -> BlobClient {
+    pub fn get_static_font_client(&self, font_type: &CalliFont, font_name: char) -> BlobClient {
         let blob_name = format!("{font_type}/{font_name}.png");
         let storage_credit =
             StorageCredentials::access_key(self.account.clone(), self.access_key.clone());
@@ -136,15 +136,20 @@ impl BlobStorageConfig {
                 let word_frames = WordFrame::load_from_client(blob_client).await?;
                 result.push(word_frames);
             } else {
-                // Todo: Replace with an actual static frame of the whole word.
-                result.push(vec![WordFrame {
-                    name: word,
-                    img: RgbaImage::new(0, 0),
-                    width: 0,
-                    height: 0,
-                    pos_x: 0,
-                    pos_y: 0,
-                }]);
+                let static_blob_client = self.get_static_font_client(font_type, word);
+                if static_blob_client.exists().await? {
+                    let word_frame = WordFrame::load_static_from_client(static_blob_client).await?;
+                    result.push(vec![word_frame]);
+                } else {
+                    result.push(vec![WordFrame {
+                        name: word,
+                        img: RgbaImage::new(0, 0),
+                        width: 0,
+                        height: 0,
+                        pos_x: 0,
+                        pos_y: 0,
+                    }]);
+                }
             }
         }
 
@@ -304,11 +309,15 @@ pub async fn compose_poem_animation_frames(
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
     let mut recorded_frames = Vec::new();
+    let sub_font_type = CalliFont::from_str(&req.subject_font_type)?;
     let font_type = CalliFont::from_str(&req.font_type)?;
     let blob_config = BlobStorageConfig::from_local_env()?;
 
     let mut content_strokes = blob_config
         .get_poem_frames_by_font_type(&font_type, &req.content)
+        .await?;
+    let mut subject_strokes = blob_config
+        .get_poem_frames_by_font_type(&sub_font_type, &req.subject)
         .await?;
 
     let mut main_canvas =
@@ -317,7 +326,7 @@ pub async fn compose_poem_animation_frames(
     if req.word_list.len() == content_strokes.len() {
         for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
             // Process word with valid frames only.
-            if strokes.len() > 1 {
+            if !strokes.is_empty() {
                 for frame in strokes {
                     frame.resize_img_by_size(layer.width, layer.height);
                     imageops::overlay(
@@ -328,6 +337,25 @@ pub async fn compose_poem_animation_frames(
                     );
                     // Collect the canvas frame.
                     recorded_frames.push(main_canvas.clone());
+                }
+            }
+        }
+        // Draw subject and signatures.
+        if req.subject_list.len() == subject_strokes.len() {
+            for (s_strokes, s_layer) in subject_strokes.iter_mut().zip(req.subject_list.iter()) {
+                // Process word with valid frames only.
+                if !s_strokes.is_empty() {
+                    for sframe in s_strokes {
+                        sframe.resize_img_by_size(s_layer.width, s_layer.height);
+                        imageops::overlay(
+                            &mut main_canvas,
+                            &sframe.img,
+                            s_layer.pos_x as i64,
+                            s_layer.pos_y as i64,
+                        );
+                        // Collect the canvas frame.
+                        recorded_frames.push(main_canvas.clone());
+                    }
                 }
             }
         }
