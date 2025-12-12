@@ -72,4 +72,5 @@ pub struct AnimateSubject {
     pub pos_y: f64,
     pub width: isize,
     pub height: isize,
+    pub modify_x: f64,
 }
