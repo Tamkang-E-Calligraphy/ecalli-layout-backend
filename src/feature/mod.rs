@@ -293,25 +293,24 @@ pub async fn generate_poem_animation_webp(
                     current_timestamp += frame_delay_ms;
                 }
             }
-            // Draw subject and signatures.
-            if req.subject_list.len() == subject_strokes.len() {
-                for (s_strokes, s_layer) in subject_strokes.iter_mut().zip(req.subject_list.iter())
-                {
-                    // Process word with valid frames only.
-                    if !s_strokes.is_empty() {
-                        for sframe in s_strokes {
-                            sframe.resize_img_by_size(s_layer.width, s_layer.height);
-                            imageops::overlay(
-                                &mut main_canvas,
-                                &sframe.img,
-                                (s_layer.pos_x + s_layer.modify_x) as i64,
-                                s_layer.pos_y as i64,
-                            );
-                            // Add the word frame to encoder.
-                            encoder.add_frame(main_canvas.as_raw(), current_timestamp)?;
-                            // Advance the timestamp by the frame delay for the next frame
-                            current_timestamp += frame_delay_ms;
-                        }
+        }
+        // Draw subject and signatures.
+        if req.subject_list.len() == subject_strokes.len() {
+            for (s_strokes, s_layer) in subject_strokes.iter_mut().zip(req.subject_list.iter()) {
+                // Process word with valid frames only.
+                if !s_strokes.is_empty() {
+                    for sframe in s_strokes {
+                        sframe.resize_img_by_size(s_layer.width, s_layer.height);
+                        imageops::overlay(
+                            &mut main_canvas,
+                            &sframe.img,
+                            (s_layer.pos_x + s_layer.modify_x) as i64,
+                            s_layer.pos_y as i64,
+                        );
+                        // Add the word frame to encoder.
+                        encoder.add_frame(main_canvas.as_raw(), current_timestamp)?;
+                        // Advance the timestamp by the frame delay for the next frame
+                        current_timestamp += frame_delay_ms;
                     }
                 }
             }
