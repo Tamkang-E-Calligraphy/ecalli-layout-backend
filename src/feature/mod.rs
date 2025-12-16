@@ -1,7 +1,9 @@
 pub mod json;
 use json::*;
 
+use std::collections::HashMap;
 use std::fmt;
+use std::hash::Hash;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::str::FromStr;
@@ -40,6 +42,7 @@ pub enum AppError {
     InvalidFontType(String),
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CalliFont {
     Clerical,
     Cursive,
@@ -121,34 +124,41 @@ impl BlobStorageConfig {
         &self,
         font_type: &CalliFont,
         content: &str,
-    ) -> Result<Vec<Vec<WordFrame>>, AppError> {
-        let mut result = Vec::with_capacity(content.len());
+    ) -> Result<HashMap<(CalliFont, char), Vec<WordFrame>>, AppError> {
+        let mut result = HashMap::with_capacity(content.len());
         for word in content.chars() {
             // Ensure the frontend has already excluded none Chinese letters.
             if matches!(word, '，' | '。' | '？' | '！' | ',' | '?' | '!') {
                 unreachable!();
             }
 
-            // Download request to BLOB storage.
-            let blob_client = self.get_frame_client(font_type, word);
-            // Check if the selected word exists.
-            if blob_client.exists().await? {
-                let word_frames = WordFrame::load_from_client(blob_client).await?;
-                result.push(word_frames);
-            } else {
-                let static_blob_client = self.get_static_font_client(font_type, word);
-                if static_blob_client.exists().await? {
-                    let word_frame = WordFrame::load_static_from_client(static_blob_client).await?;
-                    result.push(vec![word_frame]);
+            if !result.contains_key(&(*font_type, word)) {
+                // Download request to BLOB storage.
+                let blob_client = self.get_frame_client(font_type, word);
+                let key = (*font_type, word);
+                // Check if the selected word exists.
+                if blob_client.exists().await? {
+                    let word_frames = WordFrame::load_from_client(blob_client).await?;
+                    result.insert(key, word_frames);
                 } else {
-                    result.push(vec![WordFrame {
-                        name: word,
-                        img: RgbaImage::new(0, 0),
-                        width: 0,
-                        height: 0,
-                        pos_x: 0,
-                        pos_y: 0,
-                    }]);
+                    let static_blob_client = self.get_static_font_client(font_type, word);
+                    if static_blob_client.exists().await? {
+                        let word_frame =
+                            WordFrame::load_static_from_client(static_blob_client).await?;
+                        result.insert(key, vec![word_frame]);
+                    } else {
+                        result.insert(
+                            key,
+                            vec![WordFrame {
+                                name: word,
+                                img: RgbaImage::new(0, 0),
+                                width: 0,
+                                height: 0,
+                                pos_x: 0,
+                                pos_y: 0,
+                            }],
+                        );
+                    }
                 }
             }
         }
@@ -157,6 +167,7 @@ impl BlobStorageConfig {
     }
 }
 
+/*
 // Greedily distributes words into K columns sequentially (in input order)
 // to minimize the max height (H_max).
 //
@@ -220,7 +231,6 @@ fn get_word_coordinates(
     scaled_coords
 }
 
-/*
 pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canvas_width: u32, canvas_height: u32, fixed_space: bool) -> Result<(), AppError> {
     let word_orig_width = selected_words[0].width;
     let word_count = selected_words.len();
@@ -267,6 +277,8 @@ pub async fn generate_poem_animation_webp(
         .get_poem_frames_by_font_type(&sub_font_type, &req.subject)
         .await?;
 
+    // The current WebP encoder only accepts rgbA input.
+    // Todo: Change to lumaA for perfomance improvement.
     let mut main_canvas =
         RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
 
@@ -274,11 +286,13 @@ pub async fn generate_poem_animation_webp(
     let mut encoder = Encoder::new((canvas_width, canvas_height))?;
     let mut current_timestamp = 0;
 
-    if req.word_list.len() == content_strokes.len() {
-        for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
+    if req.word_list.len() >= content_strokes.len() {
+        for (idx, layer) in req.word_list.iter().enumerate() {
             // Process word with valid frames only.
-            if strokes.len() > 1 {
-                for frame in strokes {
+            let strokes_opt =
+                content_strokes.get_mut(&(font_type, req.content.chars().nth(idx).unwrap()));
+            if let Some(strokes) = strokes_opt {
+                for frame in strokes.iter_mut() {
                     frame.resize_img_by_size(layer.width, layer.height);
                     // Apply strokes onto the main canvas
                     imageops::overlay(
@@ -295,11 +309,13 @@ pub async fn generate_poem_animation_webp(
             }
         }
         // Draw subject and signatures.
-        if req.subject_list.len() == subject_strokes.len() {
-            for (s_strokes, s_layer) in subject_strokes.iter_mut().zip(req.subject_list.iter()) {
+        if req.subject_list.len() >= subject_strokes.len() {
+            for (idx, s_layer) in req.subject_list.iter().enumerate() {
+                let sstrokes_opt = subject_strokes
+                    .get_mut(&(sub_font_type, req.subject.chars().nth(idx).unwrap()));
                 // Process word with valid frames only.
-                if !s_strokes.is_empty() {
-                    for sframe in s_strokes {
+                if let Some(s_strokes) = sstrokes_opt {
+                    for sframe in s_strokes.iter_mut() {
                         sframe.resize_img_by_size(s_layer.width, s_layer.height);
                         imageops::overlay(
                             &mut main_canvas,
@@ -326,71 +342,6 @@ pub async fn generate_poem_animation_webp(
     let webp_bytes = encoder.finalize(current_timestamp)?;
 
     Ok(webp_bytes)
-}
-
-pub async fn compose_poem_animation_frames(
-    req: AnimationRequest,
-) -> Result<Vec<RgbaImage>, AppError> {
-    let canvas_width = req.width as u32;
-    let canvas_height = req.height as u32;
-    let mut recorded_frames = Vec::new();
-    let sub_font_type = CalliFont::from_str(&req.subject_font_type)?;
-    let font_type = CalliFont::from_str(&req.font_type)?;
-    let blob_config = BlobStorageConfig::from_local_env()?;
-
-    let mut content_strokes = blob_config
-        .get_poem_frames_by_font_type(&font_type, &req.content)
-        .await?;
-    let mut subject_strokes = blob_config
-        .get_poem_frames_by_font_type(&sub_font_type, &req.subject)
-        .await?;
-
-    let mut main_canvas =
-        RgbaImage::from_pixel(canvas_width, canvas_height, Rgba([255, 255, 255, 255]));
-
-    if req.word_list.len() == content_strokes.len() {
-        for (strokes, layer) in content_strokes.iter_mut().zip(req.word_list.iter()) {
-            // Process word with valid frames only.
-            if !strokes.is_empty() {
-                for frame in strokes {
-                    frame.resize_img_by_size(layer.width, layer.height);
-                    imageops::overlay(
-                        &mut main_canvas,
-                        &frame.img,
-                        (layer.pos_x + layer.modify_x) as i64,
-                        layer.pos_y as i64,
-                    );
-                    // Collect the canvas frame.
-                    recorded_frames.push(main_canvas.clone());
-                }
-            }
-        }
-        // Draw subject and signatures.
-        if req.subject_list.len() == subject_strokes.len() {
-            for (s_strokes, s_layer) in subject_strokes.iter_mut().zip(req.subject_list.iter()) {
-                // Process word with valid frames only.
-                if !s_strokes.is_empty() {
-                    for sframe in s_strokes {
-                        sframe.resize_img_by_size(s_layer.width, s_layer.height);
-                        imageops::overlay(
-                            &mut main_canvas,
-                            &sframe.img,
-                            (s_layer.pos_x + s_layer.modify_x) as i64,
-                            s_layer.pos_y as i64,
-                        );
-                        // Collect the canvas frame.
-                        recorded_frames.push(main_canvas.clone());
-                    }
-                }
-            }
-        }
-    } else {
-        return Err(AppError::InvalidFileName(
-            "WordList contains illegal characters".to_string(),
-        ));
-    }
-
-    Ok(recorded_frames)
 }
 
 /// Converts a Vec of Rgba<u8> frames into an animated WebP byte array.
