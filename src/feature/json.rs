@@ -63,6 +63,7 @@ pub struct AnimationRequest {
     pub word_list: Vec<AnimateSubject>,
     pub width: isize,
     pub height: isize,
+    pub fps: isize,
 }
 
 #[derive(Debug, Deserialize)]

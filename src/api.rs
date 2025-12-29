@@ -19,8 +19,7 @@ pub async fn handle_poem_animation_generation(body: web::Json<AnimationRequest>)
         });
     }
 
-    // Set to 30 FPS with 33ms delay when encoding webp image.
-    match generate_poem_animation_webp(body.into_inner(), 33).await {
+    match generate_poem_animation_webp(body.into_inner()).await {
         Ok(webp_data) => {
             // Success: Provide a filename for WebP Image.
             HttpResponse::Ok()

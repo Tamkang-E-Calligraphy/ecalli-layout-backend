@@ -260,15 +260,13 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 }
 */
 
-pub async fn generate_poem_animation_webp(
-    req: AnimationRequest,
-    frame_delay_ms: i32,
-) -> Result<WebPData, AppError> {
+pub async fn generate_poem_animation_webp(req: AnimationRequest) -> Result<WebPData, AppError> {
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
     let font_type = CalliFont::from_str(&req.font_type)?;
     let sub_font_type = CalliFont::from_str(&req.subject_font_type)?;
     let blob_config = BlobStorageConfig::from_local_env()?;
+    let frame_delay_ms = (1000 / req.fps).abs() as i32;
 
     let mut content_strokes = blob_config
         .get_poem_frames_by_font_type(&font_type, &req.content)
