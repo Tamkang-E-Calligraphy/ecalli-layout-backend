@@ -6,7 +6,7 @@ use actix_web::{
     dev::{ServiceFactory, ServiceRequest, ServiceResponse},
     get,
     http::header,
-    web,
+    middleware, web,
 };
 use ecalli_layout_backend::{
     DB, KEY,
@@ -14,8 +14,6 @@ use ecalli_layout_backend::{
 };
 use fjall::{Database, KeyspaceCreateOptions};
 use std::io;
-use tracing_actix_web::TracingLogger;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[get("/health")]
 async fn health_check() -> impl Responder {
@@ -35,10 +33,7 @@ fn create_server_app() -> App<
     >,
 > {
     // Initialize the global subscriber
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer()) // This prints to stdout
-        .with(tracing_subscriber::EnvFilter::from_default_env()) // Respects RUST_LOG
-        .init();
+    env_logger::init();
 
     let cors = Cors::default()
         .allow_any_origin()
@@ -54,7 +49,7 @@ fn create_server_app() -> App<
 
     App::new()
         .wrap(cors)
-        .wrap(TracingLogger::default())
+        .wrap(middleware::Logger::default())
         .service(
             web::scope("/api/v1")
                 .service(health_check)
