@@ -7,6 +7,14 @@ edition = "2024"
 name = "app"
 path = "bin/app.rs"
 
+[[bin]]
+name = "scanner"
+path = "bin/scanner.rs"
+
+[[bin]]
+name = "convert"
+path = "bin/convert.rs"
+
 [dependencies]
 #azure_core = "0.30"
 azure_storage = "0.21"
@@ -14,18 +22,20 @@ azure_storage_blobs = "0.21"
 #azure_identity = "0.30"
 futures = "0.3"
 actix-cors = "0.7"
-actix-http = "3.11"
+actix-http = "3.12"
 actix-rt = "2.11"
 actix-web = "4"
+fjall = "3.1"
 tracing = "0.1"
 tracing-actix-web = "0.7"
 dotenv = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1.48", features = ["full"] }
+tokio = { version = "1.50", features = ["full"] }
+jwalk = "0.8"
 
 # Image processing
 image = "0.25"
 webp-animation = "0.9"
-zip = "6"
+zip = "8"
