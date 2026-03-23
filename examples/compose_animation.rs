@@ -4,6 +4,7 @@ use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
+    /*
     let test_req = AnimationRequest {
         subject:"李白 登金陵鳳凰臺".into(),
         subject_font_type: "行書".into(),
@@ -17,6 +18,7 @@ async fn main() -> Result<(), AppError> {
     };
     let webpdata = generate_poem_animation_webp(test_req).await?;
     fs::write("test_output.webp", webpdata)?;
+    */
 
     Ok(())
 }
