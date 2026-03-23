@@ -32,9 +32,6 @@ fn create_server_app() -> App<
         InitError = (),
     >,
 > {
-    // Initialize the global subscriber
-    env_logger::init();
-
     let cors = Cors::default()
         .allow_any_origin()
         // .allowed_origin("localhost:3000")
