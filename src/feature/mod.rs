@@ -1,7 +1,7 @@
 pub mod json;
 use json::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::io::{Cursor, Read};
@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use azure_storage::prelude::*;
 use azure_storage_blobs::prelude::*;
+use fjall::Keyspace;
 use image::{
     ExtendedColorType, ImageEncoder, Rgba, RgbaImage,
     codecs::png::PngEncoder,
@@ -36,6 +37,8 @@ pub enum AppError {
     ImageOpsFailure(#[from] image::ImageError),
     #[error("Cannot encode a list of empty frames.")]
     EmptyFrame,
+    #[error("Default storage error: {0}")]
+    CacheError(#[from] fjall::Error),
     #[error("I/O Error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("Invalid subject font type: {0}")]
@@ -260,7 +263,51 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 }
 */
 
-pub async fn generate_poem_animation_webp(req: AnimationRequest) -> Result<WebPData, AppError> {
+pub fn check_update(
+    hashset: &mut HashSet<usize>,
+    tree: &Keyspace,
+    task_id: &str,
+    divpart: usize,
+) -> Result<(), AppError> {
+    match divpart {
+        // Finished.
+        100 => {
+            if !hashset.contains(&100) {
+                tree.insert(task_id, "100")?;
+                hashset.insert(100);
+            }
+        }
+        // 3 quarter
+        75 => {
+            if !hashset.contains(&75) {
+                tree.insert(task_id, "75")?;
+                hashset.insert(75);
+            }
+        }
+        // Half
+        50 => {
+            if !hashset.contains(&50) {
+                tree.insert(task_id, "50")?;
+                hashset.insert(50);
+            }
+        }
+        // Quarter
+        25 => {
+            if !hashset.contains(&25) {
+                tree.insert(task_id, "25")?;
+                hashset.insert(25);
+            }
+        }
+        _ => (),
+    }
+
+    Ok(())
+}
+
+pub async fn generate_poem_animation_webp(
+    req: AnimationRequest,
+    tree: &Keyspace,
+) -> Result<WebPData, AppError> {
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
     let font_type = CalliFont::from_str(&req.font_type)?;
@@ -284,8 +331,20 @@ pub async fn generate_poem_animation_webp(req: AnimationRequest) -> Result<WebPD
     let mut encoder = Encoder::new((canvas_width, canvas_height))?;
     let mut current_timestamp = 0;
 
+    let total_word_count = (req.word_list.len() + req.subject_list.len()) as f64;
+    let mut cursor = 0_f64;
+    let mut hashset = HashSet::with_capacity(4);
+
     if req.word_list.len() >= content_strokes.len() {
         for (idx, layer) in req.word_list.iter().enumerate() {
+            cursor += 1.;
+            check_update(
+                &mut hashset,
+                tree,
+                &req.task_id,
+                ((cursor / total_word_count) * 100.) as usize,
+            )?;
+
             // Process word with valid frames only.
             let strokes_opt =
                 content_strokes.get_mut(&(font_type, req.content.chars().nth(idx).unwrap()));
@@ -309,6 +368,13 @@ pub async fn generate_poem_animation_webp(req: AnimationRequest) -> Result<WebPD
         // Draw subject and signatures.
         if req.subject_list.len() >= subject_strokes.len() {
             for (idx, s_layer) in req.subject_list.iter().enumerate() {
+                cursor += 1.;
+                check_update(
+                    &mut hashset,
+                    tree,
+                    &req.task_id,
+                    ((cursor / total_word_count) * 100.) as usize,
+                )?;
                 let sstrokes_opt = subject_strokes
                     .get_mut(&(sub_font_type, req.subject.chars().nth(idx).unwrap()));
                 // Process word with valid frames only.
@@ -342,10 +408,13 @@ pub async fn generate_poem_animation_webp(req: AnimationRequest) -> Result<WebPD
     Ok(webp_bytes)
 }
 
+/*
 /// Converts a Vec of Rgba<u8> frames into an animated WebP byte array.
 /// The `frame_delay_ms` is exchangable to FPS based on the formula:
 /// 1000 / FPS = frame_delay_ms (e.g. 33.3ms delay is roughly 30 FPS)
 pub fn encode_frames_to_webp(
+    task_id: &str,
+    tree: Keyspace,
     frames: Vec<RgbaImage>,
     frame_delay_ms: i32, // Time each frame is displayed
 ) -> Result<WebPData, AppError> {
@@ -363,8 +432,11 @@ pub fn encode_frames_to_webp(
     let mut encoder = Encoder::new((width, height))?;
 
     let mut current_timestamp = 0; // The timestamp tracker for frame duration
+    let frame_num = frames.len() as f64;
+    let mut hashset = std::collections::HashSet::with_capacity(4);
 
-    for frame in frames {
+    for (idx, frame) in frames.iter().enumerate() {
+        let curr_epoch = (idx + 1) as f64;
         // Add each frame to the encoder
         // The timestamp tells the encoder WHEN the frame is presented.
         encoder.add_frame(
@@ -374,6 +446,38 @@ pub fn encode_frames_to_webp(
 
         // Advance the timestamp by the frame delay for the next frame
         current_timestamp += frame_delay_ms;
+
+        match ((curr_epoch / frame_num) * 100.) as usize {
+            // Finished.
+            100 => {
+                if !hashset.contains(&100) && frame_num == curr_epoch {
+                    tree.insert(task_id, 100_isize.to_be_bytes())?;
+                    hashset.insert(100);
+                }
+            }
+            // 3 quarter
+            75 => {
+                if !hashset.contains(&75) {
+                    tree.insert(task_id, 75_isize.to_be_bytes())?;
+                    hashset.insert(75);
+                }
+            }
+            // Half
+            50 => {
+                if !hashset.contains(&50) {
+                    tree.insert(task_id, 50_isize.to_be_bytes())?;
+                    hashset.insert(50);
+                }
+            }
+            // Quarter
+            25 => {
+                if !hashset.contains(&25) {
+                    tree.insert(task_id, 25_isize.to_be_bytes())?;
+                    hashset.insert(25);
+                }
+            }
+            _ => (),
+        }
     }
 
     // Finalize the animation
@@ -382,6 +486,7 @@ pub fn encode_frames_to_webp(
 
     Ok(webp_bytes)
 }
+*/
 
 /// Example canvas frame filename: frame_001.png
 pub fn zip_frames_to_memory(frames: Vec<RgbaImage>) -> Result<Vec<u8>, AppError> {

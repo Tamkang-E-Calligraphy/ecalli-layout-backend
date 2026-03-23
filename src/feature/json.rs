@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Request format for static layout
 #[derive(Debug, Deserialize)]
@@ -55,6 +55,7 @@ pub struct StaticSubject {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimationRequest {
+    pub task_id: String,
     pub subject: String,
     pub subject_font_type: String,
     pub subject_list: Vec<AnimateSubject>,
@@ -74,4 +75,11 @@ pub struct AnimateSubject {
     pub width: isize,
     pub height: isize,
     pub modify_x: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckStatus {
+    pub task_id: String,
+    pub progress: isize,
 }
