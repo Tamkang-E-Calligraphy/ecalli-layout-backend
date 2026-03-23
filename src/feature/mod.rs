@@ -49,6 +49,7 @@ pub enum AppError {
 pub enum CalliFont {
     Clerical,
     Cursive,
+    StandardCursive,
     Regular,
     Seal,
     SemiCursive,
@@ -61,6 +62,7 @@ impl FromStr for CalliFont {
         match s {
             "楷書" => Ok(CalliFont::Regular),
             "草書" => Ok(CalliFont::Cursive),
+            "標草書" => Ok(CalliFont::StandardCursive),
             "行書" => Ok(CalliFont::SemiCursive),
             "隸書" => Ok(CalliFont::Clerical),
             "篆書" => Ok(CalliFont::Seal),
@@ -74,6 +76,7 @@ impl fmt::Display for CalliFont {
         match &self {
             CalliFont::Clerical => write!(f, "Clerical"),
             CalliFont::Cursive => write!(f, "Cursive"),
+            CalliFont::StandardCursive => write!(f, "StandardCursive"),
             CalliFont::Regular => write!(f, "Regular"),
             CalliFont::Seal => write!(f, "Seal"),
             CalliFont::SemiCursive => write!(f, "SemiCursive"),
