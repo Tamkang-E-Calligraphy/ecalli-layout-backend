@@ -8,7 +8,11 @@ use actix_web::{
     http::header,
     web,
 };
-use ecalli_layout_backend::api::{self, StatusResponse};
+use ecalli_layout_backend::{
+    DB, KEY,
+    api::{self, StatusResponse},
+};
+use fjall::{Database, KeyspaceCreateOptions};
 use std::io;
 use tracing_actix_web::TracingLogger;
 
@@ -53,6 +57,14 @@ fn create_server_app() -> App<
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
+    let db = DB.get_or_init(|| {
+        Database::builder("/opt/tku-website/backend_storage")
+            .temporary(true)
+            .open()
+            .expect("Failed to open the storage!")
+    });
+    db.keyspace(KEY, KeyspaceCreateOptions::default)
+        .expect("Failed to create the default keyspace!");
     HttpServer::new(create_server_app)
         .bind(("127.0.0.1", 18081))?
         .run()
