@@ -37,6 +37,8 @@ pub enum AppError {
     ImageOpsFailure(#[from] image::ImageError),
     #[error("Cannot encode a list of empty frames.")]
     EmptyFrame,
+    #[error("The task ID is already in-use, please wait for the task finished.")]
+    TaskIdInUse,
     #[error("Default storage error: {0}")]
     CacheError(#[from] fjall::Error),
     #[error("I/O Error: {0}")]
@@ -266,6 +268,15 @@ pub async fn compose_poem_static_layout(mut selected_words: Vec<WordFrame>, canv
 }
 */
 
+fn init_user_cache(tree: &Keyspace, task_id: &str) -> Result<(), AppError> {
+    if !tree.contains_key(task_id)? {
+        tree.insert(task_id, 0_isize.to_be_bytes())?;
+        Ok(())
+    } else {
+        Err(AppError::TaskIdInUse)
+    }
+}
+
 pub fn check_update(
     hashset: &mut HashSet<usize>,
     tree: &Keyspace,
@@ -311,6 +322,9 @@ pub async fn generate_poem_animation_webp(
     req: AnimationRequest,
     tree: &Keyspace,
 ) -> Result<WebPData, AppError> {
+    // Ensure the task id is not in used.
+    init_user_cache(tree, &req.task_id)?;
+
     let canvas_width = req.width as u32;
     let canvas_height = req.height as u32;
     let font_type = CalliFont::from_str(&req.font_type)?;
@@ -407,6 +421,9 @@ pub async fn generate_poem_animation_webp(
     // Finalize the animation
     // The last timestamp tells the encoder the total duration.
     let webp_bytes = encoder.finalize(current_timestamp)?;
+
+    // Remove the task id entry as finished.
+    tree.remove(&req.task_id)?;
 
     Ok(webp_bytes)
 }
