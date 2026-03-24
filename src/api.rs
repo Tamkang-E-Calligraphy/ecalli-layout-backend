@@ -55,7 +55,7 @@ pub async fn handle_poem_animation_generation(body: web::Json<AnimationRequest>)
     }
 }
 
-#[post("/update")]
+#[post("/progress/update")]
 pub async fn get_download_progress(body: web::Json<CheckStatus>) -> impl Responder {
     match DB
         .get()
